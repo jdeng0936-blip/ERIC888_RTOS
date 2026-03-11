@@ -1,0 +1,24 @@
+# Build output
+build/
+*.o
+*.d
+*.lst
+*.map
+*.elf
+*.bin
+*.hex
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Antigravity / AI assistant
+.antigravity/
+.gemini/
+
+# Debug
+*.log
