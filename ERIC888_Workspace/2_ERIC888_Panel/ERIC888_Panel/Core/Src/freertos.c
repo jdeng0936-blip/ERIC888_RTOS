@@ -28,6 +28,13 @@
 #include "bsp_spi_master.h"
 #include "spi.h"
 #include "iwdg.h"
+#include "i2c.h"
+#include "usart.h"
+#include "bsp_w5500.h"
+#include "bsp_w5500_socket.h"
+#include "bsp_4g.h"
+#include "bsp_gps.h"
+#include "bsp_touch.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -121,7 +128,7 @@ void MX_FREERTOS_Init(void) {
   commTaskHandle = osThreadCreate(osThread(commTask), NULL);
 
   /* definition and creation of networkTask */
-  osThreadDef(networkTask, StartNetworkTask, osPriorityIdle, 0, 1024);
+  osThreadDef(networkTask, StartNetworkTask, osPriorityBelowNormal, 0, 1024);
   networkTaskHandle = osThreadCreate(osThread(networkTask), NULL);
 
   /* definition and creation of defaultTask */
@@ -144,12 +151,41 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-  /* Infinite loop */
+  /* Display + Watchdog + Touch task */
+  uint32_t led_cnt = 0;
+
+  /* Initialize touch controller (STMPE811 on I2C1) */
+  extern I2C_HandleTypeDef hi2c1;
+  int touch_ok = BSP_Touch_Init(&hi2c1);
+
   for(;;)
   {
-    /* TODO: LCD display refresh using s_latest_adc */
-    /* TODO: Touch screen event handling */
-    osDelay(1);
+    /* Feed watchdog */
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* Status LED heartbeat (toggle every 500ms = 5 x 100ms) */
+    if (++led_cnt >= 5) {
+      led_cnt = 0;
+      HAL_GPIO_TogglePin(GPIOH, GPIO_PIN_10); /* LED1 Run */
+    }
+
+    /* Touch screen polling */
+    if (touch_ok == 0) {
+      Touch_Point pt;
+      if (BSP_Touch_GetPoint(&pt) == 0) {
+        /* Touch detected at (pt.x, pt.y) */
+        /* TODO: Route to UI event handler when LCD is ready */
+        (void)pt;
+      }
+    }
+
+    /* LED2 = PH11 (Fault) — ON if A-board reports fault */
+    if (s_adc_fresh && s_latest_adc.ch[0] == 0) {
+      /* Placeholder: set fault LED based on actual fault flags */
+    }
+
+    /* TODO: LCD display refresh using s_latest_adc (requires LTDC init) */
+    osDelay(100);
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -172,13 +208,16 @@ void StartCommTask(void const * argument)
   /* USER CODE BEGIN StartCommTask */
   /* Initialize SPI4 Master driver */
   BSP_SpiMaster_Init(&hspi4);
+  /* Master-level fix: Bind current task for IRQ notification */
+  BSP_SpiMaster_SetCommTask(xTaskGetCurrentTaskHandle());
 
   uint32_t heartbeat_tick = 0;
 
   for(;;)
   {
-    /* Check if A-board batch is ready (PI11 IRQ) */
-    if (BSP_SpiMaster_IsBatchReady()) {
+    /* Block until A-board PI11 IRQ notifies us (Batch ready) 
+       Wait up to 100ms as fallback */
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100)) > 0) {
       BSP_SpiMaster_ClearBatchReady();
 
       /* Request latest ADC data from A-board */
@@ -199,8 +238,6 @@ void StartCommTask(void const * argument)
       heartbeat_tick = now;
       BSP_SpiMaster_Transfer(CMD_HEARTBEAT, NULL, 0);
     }
-
-    osDelay(1);  /* 1ms loop rate */
   }
   /* USER CODE END StartCommTask */
 }
@@ -215,12 +252,105 @@ void StartCommTask(void const * argument)
 void StartNetworkTask(void const * argument)
 {
   /* USER CODE BEGIN StartNetworkTask */
-  /* Infinite loop */
+
+  /* --- W5500 Ethernet Init --- */
+  extern SPI_HandleTypeDef hspi2;
+  int w5500_ok = BSP_W5500_Init(&hspi2);
+  if (w5500_ok == 0) {
+    /* Configure default network parameters */
+    uint8_t ip[4]     = {192, 168, 1, 100};
+    uint8_t gw[4]     = {192, 168, 1, 1};
+    uint8_t subnet[4] = {255, 255, 255, 0};
+    uint8_t mac[6]    = {0x00, 0x08, 0xDC, 0xEC, 0x88, 0x01};
+    BSP_W5500_SetNetwork(ip, gw, subnet, mac);
+
+    /* Open TCP server socket on port 502 (Modbus TCP) */
+    W5500_Socket_Open(0, Sn_MR_TCP, 502);
+    W5500_Socket_Listen(0);
+  }
+
+  /* --- 4G Module Init --- */
+  extern UART_HandleTypeDef huart7;
+  int mod4g_ok = BSP_4G_Init(&huart7);
+
+  /* --- GPS UART1 Manual Init (PA9=TX, PA10=RX, 9600 baud) --- */
+  UART_HandleTypeDef huart1_gps;
+  huart1_gps.Instance = USART1;
+  huart1_gps.Init.BaudRate = 9600;
+  huart1_gps.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1_gps.Init.StopBits = UART_STOPBITS_1;
+  huart1_gps.Init.Parity = UART_PARITY_NONE;
+  huart1_gps.Init.Mode = UART_MODE_TX_RX;
+  huart1_gps.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1_gps.Init.OverSampling = UART_OVERSAMPLING_16;
+
+  /* Enable USART1 clock + GPIO */
+  __HAL_RCC_USART1_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  {
+    GPIO_InitTypeDef gpio = {0};
+    gpio.Pin = GPIO_PIN_9 | GPIO_PIN_10;
+    gpio.Mode = GPIO_MODE_AF_PP;
+    gpio.Pull = GPIO_PULLUP;
+    gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    gpio.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOA, &gpio);
+  }
+  HAL_UART_Init(&huart1_gps);
+  BSP_GPS_Init(&huart1_gps);
+
+  uint32_t link_check_tick = 0;
+  uint32_t signal_check_tick = 0;
+
   for(;;)
   {
-    /* TODO: W5500 Ethernet communication */
-    /* TODO: 4G module AT commands */
-    /* TODO: GPS NMEA parsing */
+    uint32_t now = HAL_GetTick();
+
+    /* W5500: check link + TCP socket state every 2s */
+    if (w5500_ok == 0 && (now - link_check_tick) >= 2000) {
+      link_check_tick = now;
+      int link = BSP_W5500_GetLinkStatus();
+
+      if (link) {
+        /* Check TCP server socket 0 state */
+        uint8_t sock_state = W5500_Socket_Status(0);
+        if (sock_state == SOCK_ESTABLISHED) {
+          /* Client connected — process Modbus TCP / data exchange */
+          uint8_t rx_buf[256];
+          int rx_len = W5500_Socket_Recv(0, rx_buf, sizeof(rx_buf));
+          if (rx_len > 0) {
+            /* TODO: Parse Modbus TCP request and respond */
+            W5500_Socket_Send(0, rx_buf, (uint16_t)rx_len); /* Echo for now */
+          }
+        } else if (sock_state == SOCK_CLOSE_WAIT) {
+          W5500_Socket_Close(0);
+          W5500_Socket_Open(0, Sn_MR_TCP, 502);
+          W5500_Socket_Listen(0);
+        } else if (sock_state == SOCK_CLOSED) {
+          W5500_Socket_Open(0, Sn_MR_TCP, 502);
+          W5500_Socket_Listen(0);
+        }
+      }
+    }
+
+    /* 4G: check signal every 30s */
+    if (mod4g_ok == 0 && (now - signal_check_tick) >= 30000) {
+      signal_check_tick = now;
+      Mod4G_Status status;
+      BSP_4G_GetStatus(&status);
+      /* LED3 = PH12: ON if 4G registered */
+      HAL_GPIO_WritePin(GPIOH, GPIO_PIN_12,
+                        status.registered ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    }
+
+    /* GPS: poll UART1 for NMEA bytes */
+    {
+      uint8_t byte;
+      while (HAL_UART_Receive(&huart1_gps, &byte, 1, 1) == HAL_OK) {
+        BSP_GPS_FeedByte(byte);
+      }
+    }
+
     osDelay(10);
   }
   /* USER CODE END StartNetworkTask */

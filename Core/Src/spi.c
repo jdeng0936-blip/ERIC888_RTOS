@@ -196,8 +196,13 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
 
   /* USER CODE BEGIN SPI4_MspInit 1 */
   /* v3.0: Switch DMA to NORMAL mode (snapshot, no tearing) */
+  /* v3.0: Align DMA to BYTE to match 8-bit SPI data width */
   hdma_spi4_rx.Init.Mode = DMA_NORMAL;
+  hdma_spi4_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+  hdma_spi4_rx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
   hdma_spi4_tx.Init.Mode = DMA_NORMAL;
+  hdma_spi4_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+  hdma_spi4_tx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
   HAL_DMA_Init(&hdma_spi4_rx);
   HAL_DMA_Init(&hdma_spi4_tx);
   /* USER CODE END SPI4_MspInit 1 */

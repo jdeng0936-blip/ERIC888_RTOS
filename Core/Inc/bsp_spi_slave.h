@@ -1,7 +1,7 @@
 /**
  * @file    bsp_spi_slave.h
  * @brief   SPI4 Slave communication driver (A-board → B-board)
- * @note    ERIC888 A-board: SPI4 Slave, 16-bit, DMA circular
+ * @note    ERIC888 A-board: SPI4 Slave, 8-bit, DMA Normal (v3.0)
  *
  *          Architecture: "Always-Ready" DMA pattern
  *          ─────────────────────────────────────────

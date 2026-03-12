@@ -107,7 +107,7 @@ function. */
 routine that makes calls to interrupt safe FreeRTOS API functions.  DO NOT CALL
 INTERRUPT SAFE FREERTOS API FUNCTIONS FROM ANY INTERRUPT THAT HAS A HIGHER
 PRIORITY THAN THIS! (higher priorities are lower numeric values. */
-#define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 5
+#define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 4
 
 /* Interrupt priorities used by the kernel port layer itself.  These are generic
 to all Cortex-M ports, and do not rely on any particular library functions. */
@@ -134,6 +134,12 @@ standard names. */
 
 /* USER CODE BEGIN Defines */
 /* Section where parameter definitions can be added (for instance, to override default ones in FreeRTOS.h) */
+
+/* Enable software timer service — required by bsp_kswitch.c non-blocking pulse */
+#define configUSE_TIMERS                         1
+#define configTIMER_TASK_PRIORITY                 ( 2 )  /* Above Normal priority */
+#define configTIMER_QUEUE_LENGTH                  10
+#define configTIMER_TASK_STACK_DEPTH              ( configMINIMAL_STACK_SIZE * 2 )
 /* USER CODE END Defines */
 
 #endif /* FREERTOS_CONFIG_H */

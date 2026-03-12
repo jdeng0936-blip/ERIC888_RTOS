@@ -48,6 +48,8 @@ Core/Src/bsp_spiflash.c \
 Core/Src/bsp_spi_slave.c \
 Core/Src/stm32f4xx_it.c \
 Core/Src/dsp_calc.c \
+Core/Src/fault_recorder.c \
+Core/Src/modbus_rtu.c \
 Core/Src/stm32f4xx_hal_msp.c \
 Drivers/CMSIS/DSP/Source/StatisticsFunctions/arm_rms_f32.c \
 Drivers/CMSIS/DSP/Source/StatisticsFunctions/arm_max_f32.c \

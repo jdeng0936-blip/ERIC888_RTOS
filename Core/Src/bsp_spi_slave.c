@@ -1,6 +1,6 @@
 /**
  * @file    bsp_spi_slave.c
- * @brief   SPI4 Slave communication driver implementation
+ * @brief   SPI4 Slave communication driver implementation (v3.0 — 8-bit, DMA Normal)
  *
  *          "Always-Ready" DMA pattern:
  *          ───────────────────────────
@@ -22,7 +22,7 @@
 
 /* ========================= Internal state ========================= */
 
-/** TX/RX frame buffers (16-bit aligned for SPI 16-bit mode) */
+/** TX/RX frame buffers (4-byte aligned for DMA) */
 static Eric888_SPI_Frame s_tx_frame __attribute__((aligned(4)));
 static Eric888_SPI_Frame s_rx_frame __attribute__((aligned(4)));
 
@@ -53,7 +53,7 @@ int BSP_SpiSlave_Init(SPI_HandleTypeDef *hspi)
     memset(&s_rx_frame, 0, sizeof(s_rx_frame));
 
     /* Start SPI4 full-duplex DMA: TX sends pre-loaded, RX captures command
-     * DMA size = frame size / 2 (because SPI4 is 16-bit mode) */
+     * v3.0: SPI is 8-bit mode, DMA is NORMAL mode — must re-arm after each xfer */
     if (HAL_SPI_TransmitReceive_DMA(hspi,
             (uint8_t *)&s_tx_frame,
             (uint8_t *)&s_rx_frame,
@@ -151,15 +151,11 @@ void BSP_SpiSlave_DmaComplete(SPI_HandleTypeDef *hspi)
     /* 1. Process received command from B-board */
     BSP_SpiSlave_ProcessRx();
 
-    /* 2. TX is already refreshed by Task_Comm (latest data always ready)
-     *    DMA in circular mode will re-send the same buffer.
-     *    If non-circular, re-arm here:
-     */
-    /* HAL_SPI_TransmitReceive_DMA(s_hspi,
-     *     (uint8_t *)&s_tx_frame,
-     *     (uint8_t *)&s_rx_frame,
-     *     sizeof(Eric888_SPI_Frame) / 2);
-     */
+    /* 2. Re-arm DMA for next transaction (v3.0: DMA_NORMAL requires re-arm) */
+    HAL_SPI_TransmitReceive_DMA(s_hspi,
+        (uint8_t *)&s_tx_frame,
+        (uint8_t *)&s_rx_frame,
+        sizeof(Eric888_SPI_Frame));
 }
 
 const SpiSlave_Stats* BSP_SpiSlave_GetStats(void)

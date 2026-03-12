@@ -59,7 +59,7 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOI, TRIG_ON_4_Pin|TRIG_ON_1I4_Pin|TRIG_OFF_3_Pin|TRIG_ON_3_Pin
-                          |TRIG_OFF_4_Pin, GPIO_PIN_RESET);
+                          |TRIG_OFF_4_Pin|GPIO_PIN_11, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
@@ -80,10 +80,11 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(TRIG_ON_4_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PI11 */
+  /*Configure GPIO pin : PI11 — IRQ handshake output to B-board */
   GPIO_InitStruct.Pin = GPIO_PIN_11;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOI, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA4 */
@@ -148,7 +149,7 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOI, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 4, 0);
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
 }

@@ -19,6 +19,7 @@
 
 static SPI_HandleTypeDef *s_hspi;
 static SpiMaster_Stats s_stats;
+static volatile TaskHandle_t s_comm_task_handle = NULL;
 
 /** TX/RX frame buffers — DMA source/destination */
 static Eric888_SPI_Frame s_tx_frame;
@@ -168,8 +169,19 @@ void BSP_SpiMaster_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == SPI_IRQ_PIN) {
     s_stats.batch_pending = 1;
-    /* CommTask will detect this flag in its main loop */
+    /* Master-level fix: Use Task Notification for microsecond response latency */
+    if (s_comm_task_handle != NULL) {
+      BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+      vTaskNotifyGiveFromISR(s_comm_task_handle, &xHigherPriorityTaskWoken);
+      portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    }
   }
+}
+
+void BSP_SpiMaster_SetCommTask(TaskHandle_t hTask)
+{
+  s_comm_task_handle = hTask;
+  __DMB();  /* ensure ISR sees updated handle before next EXTI */
 }
 
 const SpiMaster_Stats* BSP_SpiMaster_GetStats(void)

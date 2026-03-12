@@ -145,8 +145,9 @@ int main(void)
   // TIM3 TRGO=Update triggers ADC; CH1 PWM outputs CONVST pulse on PC6
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 
-  // --- EXTI1 (PB1 BUSY): ensure priority=5 for FreeRTOS API safety ---
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
+  // --- EXTI1 (PB1 BUSY): priority=4, preempts SPI/UART(5+) ---
+  // configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY=4, so FromISR APIs are safe
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 4, 0);
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

@@ -20,6 +20,7 @@ typedef struct {
   float32_t uv_threshold_mv;   /* Undervoltage trip */
   float32_t oc_threshold_mv;   /* Overcurrent trip (ADC millivolts) */
   float32_t thd_threshold_pct; /* THD limit (percent) */
+  uint8_t   trip_debounce;     /* Consecutive blocks needed to trip (default 3 ≈ 60ms) */
 } DSP_Protection_Config;
 
 /* Calculation results (updated every 512-sample block = ~20ms) */
@@ -30,6 +31,7 @@ typedef struct {
   float32_t peak[DSP_NUM_CH];      /* Peak value in block */
   uint8_t   fault_flags;           /* bit0~7: channel fault flags */
   uint8_t   trip_requested;        /* 1 = protection trip needed */
+  uint8_t   fault_count[DSP_NUM_CH]; /* consecutive fault blocks per channel (debounce) */
 } DSP_Results;
 
 /**

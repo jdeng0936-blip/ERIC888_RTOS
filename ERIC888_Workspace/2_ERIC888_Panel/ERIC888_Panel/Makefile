@@ -85,7 +85,12 @@ Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c \
 Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F/port.c \
 Core/Src/sysmem.c \
 Core/Src/syscalls.c \
-Core/Src/bsp_spi_master.c
+Core/Src/bsp_spi_master.c \
+Core/Src/bsp_w5500.c \
+Core/Src/bsp_w5500_socket.c \
+Core/Src/bsp_4g.c \
+Core/Src/bsp_gps.c \
+Core/Src/bsp_touch.c
 
 # ASM sources
 ASM_SOURCES =  \

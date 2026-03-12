@@ -17,6 +17,8 @@
 #define BSP_SPI_MASTER_H
 
 #include "stm32f4xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include "eric888_spi_protocol.h"
 
 /* ========================= Configuration ========================= */
@@ -72,6 +74,11 @@ const Eric888_SPI_Frame* BSP_SpiMaster_GetRxFrame(void);
  * @retval 1=batch ready, 0=not ready
  */
 uint8_t BSP_SpiMaster_IsBatchReady(void);
+
+/**
+ * @brief  Bind CommTask for instant notification from EXTI ISR
+ */
+void    BSP_SpiMaster_SetCommTask(TaskHandle_t hTask);
 
 /**
  * @brief  Clear batch ready flag (after reading)

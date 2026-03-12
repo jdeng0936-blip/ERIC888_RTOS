@@ -97,6 +97,7 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SPI4_Init();
+  MX_SPI2_Init();   /* W5500 Ethernet */
   MX_I2C1_Init();
   MX_IWDG_Init();
   MX_SDIO_SD_Init();

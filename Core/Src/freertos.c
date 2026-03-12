@@ -38,6 +38,8 @@
 #include "bsp_spi_slave.h"
 #include "spi.h"
 #include "dsp_calc.h"
+#include "fault_recorder.h"
+#include "modbus_rtu.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,6 +60,8 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 extern uint16_t adc_dma_buf[6];
+extern volatile uint32_t g_isr_count;
+extern volatile uint32_t g_isr_cycles_max;
 
 /* Task notification handle - used by EXTI1 ISR to wake Calc task */
 volatile TaskHandle_t xCalcTaskHandle = NULL;
@@ -102,6 +106,19 @@ void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackTy
   /* place for user code */
 }
 /* USER CODE END GET_IDLE_TASK_MEMORY */
+
+/* GetTimerTaskMemory prototype (required when configUSE_TIMERS=1 + static alloc) */
+void vApplicationGetTimerTaskMemory( StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize );
+
+static StaticTask_t xTimerTaskTCBBuffer;
+static StackType_t xTimerStack[configTIMER_TASK_STACK_DEPTH];
+
+void vApplicationGetTimerTaskMemory( StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize )
+{
+  *ppxTimerTaskTCBBuffer = &xTimerTaskTCBBuffer;
+  *ppxTimerTaskStackBuffer = &xTimerStack[0];
+  *pulTimerTaskStackSize = configTIMER_TASK_STACK_DEPTH;
+}
 
 /**
   * @brief  FreeRTOS initialization
@@ -165,6 +182,7 @@ void StartTask01(void const * argument)
   /* Communication task: SPI4 inter-board + RS485 Modbus */
   BSP_RS485_Init();
   BSP_SpiSlave_Init(&hspi4);
+  Modbus_Init(&huart3);
 
   for(;;)
   {
@@ -173,8 +191,8 @@ void StartTask01(void const * argument)
       BSP_SpiSlave_RefreshTx(&g_adc_db);
     }
 
-    /* TODO: Handle RS485 Modbus requests */
-    osDelay(1);  /* 1ms refresh rate: B-board can poll at up to 1kHz */
+    /* Handle RS485 Modbus RTU requests (blocking with timeout) */
+    Modbus_Poll();
   }
   /* USER CODE END StartTask01 */
 }
@@ -191,6 +209,9 @@ void StartTaskCalc(void const * argument)
   /* USER CODE BEGIN StartTaskCalc */
   /* Save handle for ISR notification */
   xCalcTaskHandle = xTaskGetCurrentTaskHandle();
+
+  /* Initialize K-switch driver (requires RTOS scheduler running) */
+  BSP_KSwitch_Init();
 
   /* Initialize double-buffer */
   Eric888_DB_Init(&g_adc_db);
@@ -209,6 +230,26 @@ void StartTaskCalc(void const * argument)
       /* Protection trip if needed */
       if (dsp->trip_requested) {
         BSP_KSwitch_TripAll();
+
+        /* Post fault event to StoreTask for Flash recording */
+        FaultEvent evt;
+        evt.timestamp_ms  = HAL_GetTick();
+        evt.fault_flags   = dsp->fault_flags;
+        evt.fault_channel = 0;
+        /* Find primary faulted channel (first set bit) */
+        for (int fc = 0; fc < DSP_NUM_CH; fc++) {
+          if (dsp->fault_flags & (1 << fc)) {
+            evt.fault_channel = (uint8_t)fc;
+            break;
+          }
+        }
+        evt.dsp_snapshot = *dsp;
+        /* Send faulted channel waveform (int16_t raw from batch) */
+        int16_t wave_buf[512];
+        for (int wi = 0; wi < 512; wi++) {
+          wave_buf[wi] = batch->samples[wi].ch[evt.fault_channel];
+        }
+        FaultRecorder_PostEvent(&evt, wave_buf, 512);
       }
     }
   }
@@ -225,11 +266,13 @@ void StartTaskCalc(void const * argument)
 void StartTaskStore(void const * argument)
 {
   /* USER CODE BEGIN StartTaskStore */
+  /* Initialize fault recorder (creates queue, reads Flash metadata) */
+  FaultRecorder_Init();
+
   for(;;)
   {
-    /* TODO: Wait for fault event queue from Calc task */
-    /* TODO: Write waveform data to SDRAM ring buffer */
-    osDelay(10);
+    /* Block on fault event queue — writes to SPI Flash when event arrives */
+    FaultRecorder_ProcessTask();
   }
   /* USER CODE END StartTaskStore */
 }
@@ -244,13 +287,36 @@ void StartTaskStore(void const * argument)
 void StartTaskMonitor(void const * argument)
 {
   /* USER CODE BEGIN StartTaskMonitor */
+  static uint32_t led_toggle_cnt = 0;
+  static uint32_t last_isr_count = 0;
+  static uint32_t stats_tick = 0;
+
   for(;;)
   {
     /* Feed IWDG watchdog */
     HAL_IWDG_Refresh(&hiwdg);
 
-    /* TODO: Toggle heartbeat LED */
-    /* TODO: Report system status via SPI4 */
+    /* Heartbeat LED: toggle every 500ms (5 × 100ms loop) */
+    if (++led_toggle_cnt >= 5) {
+      led_toggle_cnt = 0;
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0); /* PA0 = heartbeat LED (adjust if needed) */
+    }
+
+    /* ISR statistics: check sampling frequency every 5s */
+    uint32_t now = HAL_GetTick();
+    if ((now - stats_tick) >= 5000) {
+      uint32_t cur_count = g_isr_count;
+      uint32_t delta = cur_count - last_isr_count;
+      /* Expected: ~128000 interrupts per 5s (25600 Hz × 5s) */
+      /* Alert if deviation > 5% */
+      if (delta < 121600 || delta > 134400) {
+        /* Sampling frequency anomaly detected!
+         * In production: set a fault flag or send alert via SPI/RS485 */
+      }
+      last_isr_count = cur_count;
+      stats_tick = now;
+    }
+
     osDelay(100);  /* 100ms watchdog feed interval */
   }
   /* USER CODE END StartTaskMonitor */
