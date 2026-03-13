@@ -35,6 +35,10 @@
 #include "bsp_4g.h"
 #include "bsp_gps.h"
 #include "bsp_touch.h"
+#include "lvgl.h"
+#include "lv_port_disp.h"
+#include "lv_port_indev.h"
+#include "ui_main.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -151,41 +155,61 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-  /* Display + Watchdog + Touch task */
+  /* Display + Watchdog + LVGL task */
   uint32_t led_cnt = 0;
 
   /* Initialize touch controller (STMPE811 on I2C1) */
   extern I2C_HandleTypeDef hi2c1;
-  int touch_ok = BSP_Touch_Init(&hi2c1);
+  BSP_Touch_Init(&hi2c1);
+
+  /* Initialize LVGL */
+  lv_init();
+  lv_port_disp_init();
+  lv_port_indev_init();
+
+  /* Create the ERIC888 main UI */
+  ui_main_create();
+
+  uint32_t ui_update_tick = 0;
 
   for(;;)
   {
     /* Feed watchdog */
     HAL_IWDG_Refresh(&hiwdg);
 
-    /* Status LED heartbeat (toggle every 500ms = 5 x 100ms) */
-    if (++led_cnt >= 5) {
+    /* Status LED heartbeat (toggle every 500ms ≈ 32 x 16ms) */
+    if (++led_cnt >= 32) {
       led_cnt = 0;
       HAL_GPIO_TogglePin(GPIOH, GPIO_PIN_10); /* LED1 Run */
     }
 
-    /* Touch screen polling */
-    if (touch_ok == 0) {
-      Touch_Point pt;
-      if (BSP_Touch_GetPoint(&pt) == 0) {
-        /* Touch detected at (pt.x, pt.y) */
-        /* TODO: Route to UI event handler when LCD is ready */
-        (void)pt;
+    /* LVGL timer handler — drives rendering + input */
+    lv_timer_handler();
+
+    /* Update UI values from A-board data every 500ms */
+    uint32_t now = HAL_GetTick();
+    if ((now - ui_update_tick) >= 500) {
+      ui_update_tick = now;
+      if (s_adc_fresh) {
+        /* Map ADC channels to voltage/current (placeholder scaling) */
+        float ua = (float)s_latest_adc.ch[0] * 0.01f;
+        float ub = (float)s_latest_adc.ch[1] * 0.01f;
+        float uc = (float)s_latest_adc.ch[2] * 0.01f;
+        float ia = (float)s_latest_adc.ch[3] * 0.001f;
+        float ib = (float)s_latest_adc.ch[4] * 0.001f;
+        float ic = (float)s_latest_adc.ch[5] * 0.001f;
+        ui_main_update_voltage(ua, ub, uc);
+        ui_main_update_current(ia, ib, ic);
+        ui_main_update_frequency(50.0f); /* TODO: real freq from DSP */
       }
     }
 
-    /* LED2 = PH11 (Fault) — ON if A-board reports fault */
+    /* LED2 = PH11 (Fault) */
     if (s_adc_fresh && s_latest_adc.ch[0] == 0) {
       /* Placeholder: set fault LED based on actual fault flags */
     }
 
-    /* TODO: LCD display refresh using s_latest_adc (requires LTDC init) */
-    osDelay(100);
+    osDelay(16); /* ~60 FPS LVGL refresh rate */
   }
   /* USER CODE END StartDefaultTask */
 }

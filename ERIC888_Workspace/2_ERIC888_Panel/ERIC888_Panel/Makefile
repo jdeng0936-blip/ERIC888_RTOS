@@ -103,7 +103,32 @@ Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pccard.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sdram.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_ltdc.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_ltdc_ex.c \
-Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dsi.c
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dsi.c \
+Core/Src/lv_port_disp.c \
+Core/Src/lv_port_indev.c \
+Core/Src/ui_main.c \
+$(wildcard Middlewares/lvgl/src/*.c) \
+$(wildcard Middlewares/lvgl/src/core/*.c) \
+$(wildcard Middlewares/lvgl/src/draw/*.c) \
+$(wildcard Middlewares/lvgl/src/draw/sw/*.c) \
+$(wildcard Middlewares/lvgl/src/draw/stm32_dma2d/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/layouts/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/layouts/flex/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/layouts/grid/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/themes/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/themes/default/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/themes/basic/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/themes/mono/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/widgets/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/widgets/*/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/others/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/others/*/*.c) \
+$(wildcard Middlewares/lvgl/src/extra/libs/*/*.c) \
+$(wildcard Middlewares/lvgl/src/font/*.c) \
+$(wildcard Middlewares/lvgl/src/hal/*.c) \
+$(wildcard Middlewares/lvgl/src/misc/*.c) \
+$(wildcard Middlewares/lvgl/src/widgets/*.c)
 
 # ASM sources
 ASM_SOURCES =  \
@@ -156,7 +181,8 @@ AS_DEFS =
 # C defines
 C_DEFS =  \
 -DUSE_HAL_DRIVER \
--DSTM32F429xx
+-DSTM32F429xx \
+-DLV_CONF_INCLUDE_SIMPLE
 
 
 # AS includes
@@ -180,7 +206,9 @@ C_INCLUDES =  \
 -IMiddlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F \
 -IDrivers/CMSIS/Device/ST/STM32F4xx/Include \
 -IDrivers/CMSIS/Include \
--I../../../ERIC888_Workspace/3_Common_Protocol
+-I../../../ERIC888_Workspace/3_Common_Protocol \
+-IMiddlewares/lvgl \
+-IMiddlewares/lvgl/src
 
 
 # compile gcc flags
