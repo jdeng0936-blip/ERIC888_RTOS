@@ -21,15 +21,8 @@
 #include "spi.h"
 
 /* USER CODE BEGIN 0 */
-
-/* USER CODE END 0 */
-
-SPI_HandleTypeDef hspi4;
 SPI_HandleTypeDef hspi2;
-DMA_HandleTypeDef hdma_spi4_rx;
-DMA_HandleTypeDef hdma_spi4_tx;
 
-/* SPI2 init function (W5500 Ethernet, PB10=SCK, PC2=MISO, PC3=MOSI) */
 void MX_SPI2_Init(void)
 {
   hspi2.Instance = SPI2;
@@ -39,7 +32,7 @@ void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16; /* ~5.6MHz */
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -49,6 +42,11 @@ void MX_SPI2_Init(void)
     Error_Handler();
   }
 }
+/* USER CODE END 0 */
+
+SPI_HandleTypeDef hspi4;
+DMA_HandleTypeDef hdma_spi4_rx;
+DMA_HandleTypeDef hdma_spi4_tx;
 
 /* SPI4 init function */
 void MX_SPI4_Init(void)
@@ -64,10 +62,10 @@ void MX_SPI4_Init(void)
   hspi4.Instance = SPI4;
   hspi4.Init.Mode = SPI_MODE_MASTER;
   hspi4.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi4.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi4.Init.DataSize = SPI_DATASIZE_16BIT;
   hspi4.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi4.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi4.Init.NSS = SPI_NSS_SOFT;
+  hspi4.Init.NSS = SPI_NSS_HARD_OUTPUT;
   hspi4.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi4.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi4.Init.TIMode = SPI_TIMODE_DISABLE;
@@ -87,41 +85,7 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
 {
 
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-  if(spiHandle->Instance==SPI2)
-  {
-    /* SPI2 clock enable (W5500 Ethernet) */
-    __HAL_RCC_SPI2_CLK_ENABLE();
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-    __HAL_RCC_GPIOC_CLK_ENABLE();
-
-    /* SPI2 GPIO: PB10=SCK, PC2=MISO, PC3=MOSI */
-    GPIO_InitStruct.Pin = GPIO_PIN_10;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-    GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
-    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
-    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-    /* PB12 (CS) as GPIO output */
-    GPIO_InitStruct.Pin = GPIO_PIN_12;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);
-
-    /* PC0 (W5500 RST) as GPIO output */
-    GPIO_InitStruct.Pin = GPIO_PIN_0;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
-  }
-  else if(spiHandle->Instance==SPI4)
+  if(spiHandle->Instance==SPI4)
   {
   /* USER CODE BEGIN SPI4_MspInit 0 */
 
@@ -136,20 +100,12 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
     PE5     ------> SPI4_MISO
     PE6     ------> SPI4_MOSI
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_5|GPIO_PIN_6;
+    GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF5_SPI4;
     HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-
-    /* PE4 (NSS) as GPIO output for software control */
-    GPIO_InitStruct.Pin = GPIO_PIN_4;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4, GPIO_PIN_SET); /* NSS idle high */
 
     /* SPI4 DMA Init */
     /* SPI4_RX Init */
@@ -158,9 +114,9 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
     hdma_spi4_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
     hdma_spi4_rx.Init.PeriphInc = DMA_PINC_DISABLE;
     hdma_spi4_rx.Init.MemInc = DMA_MINC_ENABLE;
-    hdma_spi4_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
-    hdma_spi4_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
-    hdma_spi4_rx.Init.Mode = DMA_NORMAL;
+    hdma_spi4_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+    hdma_spi4_rx.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+    hdma_spi4_rx.Init.Mode = DMA_CIRCULAR;
     hdma_spi4_rx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
     hdma_spi4_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
     if (HAL_DMA_Init(&hdma_spi4_rx) != HAL_OK)
@@ -176,9 +132,9 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
     hdma_spi4_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
     hdma_spi4_tx.Init.PeriphInc = DMA_PINC_DISABLE;
     hdma_spi4_tx.Init.MemInc = DMA_MINC_ENABLE;
-    hdma_spi4_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
-    hdma_spi4_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
-    hdma_spi4_tx.Init.Mode = DMA_NORMAL;
+    hdma_spi4_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+    hdma_spi4_tx.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+    hdma_spi4_tx.Init.Mode = DMA_CIRCULAR;
     hdma_spi4_tx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
     hdma_spi4_tx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
     if (HAL_DMA_Init(&hdma_spi4_tx) != HAL_OK)
@@ -191,6 +147,35 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
   /* USER CODE BEGIN SPI4_MspInit 1 */
 
   /* USER CODE END SPI4_MspInit 1 */
+  }
+  else if(spiHandle->Instance==SPI2)
+  {
+    __HAL_RCC_SPI2_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+
+    GPIO_InitTypeDef gi = {0};
+    gi.Pin = GPIO_PIN_10;
+    gi.Mode = GPIO_MODE_AF_PP;
+    gi.Pull = GPIO_NOPULL;
+    gi.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    gi.Alternate = GPIO_AF5_SPI2;
+    HAL_GPIO_Init(GPIOB, &gi);
+
+    gi.Pin = GPIO_PIN_2|GPIO_PIN_3;
+    HAL_GPIO_Init(GPIOC, &gi);
+
+    /* CS=PB12, RST=PC0 as GPIO */
+    gi.Pin = GPIO_PIN_12;
+    gi.Mode = GPIO_MODE_OUTPUT_PP;
+    gi.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOB, &gi);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);
+
+    gi.Pin = GPIO_PIN_0;
+    gi.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOC, &gi);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
   }
 }
 
@@ -223,6 +208,7 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef* spiHandle)
 }
 
 /* USER CODE BEGIN 1 */
-
+extern SPI_HandleTypeDef hspi2;
+extern void MX_SPI2_Init(void);
 /* USER CODE END 1 */
 

@@ -20,13 +20,16 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "dma.h"
+#include "dma2d.h"
 #include "i2c.h"
 #include "iwdg.h"
+#include "ltdc.h"
 #include "sdio.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
+#include "fmc.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -97,7 +100,6 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SPI4_Init();
-  MX_SPI2_Init();   /* W5500 Ethernet */
   MX_I2C1_Init();
   MX_IWDG_Init();
   MX_SDIO_SD_Init();
@@ -105,7 +107,78 @@ int main(void)
   MX_UART7_Init();
   MX_USART3_UART_Init();
   MX_USART6_UART_Init();
+  MX_DMA2D_Init();
+  MX_FMC_Init();
+  MX_LTDC_Init();
   /* USER CODE BEGIN 2 */
+  /* Re-add SPI2 for W5500 (CubeMX doesn't manage it) */
+  extern void MX_SPI2_Init(void);
+  MX_SPI2_Init();
+
+  /* SDRAM initialization command sequence (W9825G6KH) */
+  {
+    extern SDRAM_HandleTypeDef hsdram1;
+    FMC_SDRAM_CommandTypeDef cmd;
+
+    /* Step 1: Clock Configuration Enable */
+    cmd.CommandMode = FMC_SDRAM_CMD_CLK_ENABLE;
+    cmd.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK1;
+    cmd.AutoRefreshNumber = 1;
+    cmd.ModeRegisterDefinition = 0;
+    HAL_SDRAM_SendCommand(&hsdram1, &cmd, 0xFFFF);
+    HAL_Delay(1);
+
+    /* Step 2: Precharge All */
+    cmd.CommandMode = FMC_SDRAM_CMD_PALL;
+    HAL_SDRAM_SendCommand(&hsdram1, &cmd, 0xFFFF);
+
+    /* Step 3: Auto-Refresh (8 cycles) */
+    cmd.CommandMode = FMC_SDRAM_CMD_AUTOREFRESH_MODE;
+    cmd.AutoRefreshNumber = 8;
+    HAL_SDRAM_SendCommand(&hsdram1, &cmd, 0xFFFF);
+
+    /* Step 4: Load Mode Register — CAS=3, Burst=1, Sequential */
+    cmd.CommandMode = FMC_SDRAM_CMD_LOAD_MODE;
+    cmd.AutoRefreshNumber = 1;
+    cmd.ModeRegisterDefinition = (uint32_t)0x0230; /* CAS=3, BL=1, Sequential */
+    HAL_SDRAM_SendCommand(&hsdram1, &cmd, 0xFFFF);
+
+    /* Set refresh rate: 64ms / 8192 rows = 7.8us → count = 7.8us * 90MHz - 20 ≈ 683 */
+    HAL_SDRAM_ProgramRefreshRate(&hsdram1, 683);
+  }
+
+  /* LCD backlight ON (PA11 = high) */
+  {
+    GPIO_InitTypeDef gi = {0};
+    gi.Pin = GPIO_PIN_11;
+    gi.Mode = GPIO_MODE_OUTPUT_PP;
+    gi.Pull = GPIO_NOPULL;
+    gi.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &gi);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
+  }
+
+  /* LCD Reset pulse (PA7) */
+  {
+    GPIO_InitTypeDef gi = {0};
+    gi.Pin = GPIO_PIN_7;
+    gi.Mode = GPIO_MODE_OUTPUT_PP;
+    gi.Pull = GPIO_NOPULL;
+    gi.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &gi);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+    HAL_Delay(10);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+    HAL_Delay(50);
+  }
+
+  /* Fill framebuffer with blue color (RGB565: 0x001F) for LCD test */
+  {
+    uint16_t *fb = (uint16_t *)0xD0000000;
+    for (uint32_t i = 0; i < 800 * 480; i++) {
+      fb[i] = 0x001F; /* Blue */
+    }
+  }
 
   /* USER CODE END 2 */
 
@@ -140,7 +213,7 @@ void SystemClock_Config(void)
   /** Configure the main internal regulator output voltage
   */
   __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -150,11 +223,18 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLM = 4;
   RCC_OscInitStruct.PLL.PLLN = 180;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.PLL.PLLQ = 8;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Activate the Over-Drive mode
+  */
+  if (HAL_PWREx_EnableOverDrive() != HAL_OK)
   {
     Error_Handler();
   }
@@ -168,7 +248,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
   {
     Error_Handler();
   }

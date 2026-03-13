@@ -128,7 +128,7 @@ void MX_FREERTOS_Init(void) {
   commTaskHandle = osThreadCreate(osThread(commTask), NULL);
 
   /* definition and creation of networkTask */
-  osThreadDef(networkTask, StartNetworkTask, osPriorityBelowNormal, 0, 1024);
+  osThreadDef(networkTask, StartNetworkTask, osPriorityIdle, 0, 1024);
   networkTaskHandle = osThreadCreate(osThread(networkTask), NULL);
 
   /* definition and creation of defaultTask */
@@ -380,4 +380,3 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 /* USER CODE END Application */
-
