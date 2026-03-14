@@ -1,0 +1,3 @@
+[submodule "ERIC888_Workspace/2_ERIC888_Panel/ERIC888_Panel/Middlewares/lvgl"]
+	path = ERIC888_Workspace/2_ERIC888_Panel/ERIC888_Panel/Middlewares/lvgl
+	url = https://github.com/lvgl/lvgl.git
