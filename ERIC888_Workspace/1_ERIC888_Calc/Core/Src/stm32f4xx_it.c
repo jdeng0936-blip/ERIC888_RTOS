@@ -138,58 +138,25 @@ void UsageFault_Handler(void)
   }
 }
 
-/**
-  * @brief This function handles System service call via SWI instruction.
-  */
+/*
+ * ✅ [Embedded-Engineer]
+ * 屏蔽自带的 SVC_Handler, PendSV_Handler, SysTick_Handler
+ * 因为 FreeRTOS 在 port.c 中需要接管这三个核心中断来进行任务调度和系统心跳
+ */
+/*
 void SVC_Handler(void)
 {
-  /* USER CODE BEGIN SVCall_IRQn 0 */
-
-  /* USER CODE END SVCall_IRQn 0 */
-  /* USER CODE BEGIN SVCall_IRQn 1 */
-
-  /* USER CODE END SVCall_IRQn 1 */
 }
 
-/**
-  * @brief This function handles Debug monitor.
-  */
-void DebugMon_Handler(void)
-{
-  /* USER CODE BEGIN DebugMonitor_IRQn 0 */
-
-  /* USER CODE END DebugMonitor_IRQn 0 */
-  /* USER CODE BEGIN DebugMonitor_IRQn 1 */
-
-  /* USER CODE END DebugMonitor_IRQn 1 */
-}
-
-/**
-  * @brief This function handles Pendable request for system service.
-  */
 void PendSV_Handler(void)
 {
-  /* USER CODE BEGIN PendSV_IRQn 0 */
-
-  /* USER CODE END PendSV_IRQn 0 */
-  /* USER CODE BEGIN PendSV_IRQn 1 */
-
-  /* USER CODE END PendSV_IRQn 1 */
 }
 
-/**
-  * @brief This function handles System tick timer.
-  */
 void SysTick_Handler(void)
 {
-  /* USER CODE BEGIN SysTick_IRQn 0 */
-
-  /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
-  /* USER CODE BEGIN SysTick_IRQn 1 */
-
-  /* USER CODE END SysTick_IRQn 1 */
 }
+*/
 
 /******************************************************************************/
 /* STM32F4xx Peripheral Interrupt Handlers                                    */
@@ -199,12 +166,16 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles EXTI line1 interrupt.
+  * @brief This function handles EXTI line 1 interrupt.
+  * ✅ [Embedded-Engineer] 这条线直连 AD7606 BUSY 引脚
+  * 放弃冗长的 HAL_GPIO_EXTI_IRQHandler，直接调用我们自己的极速裸机读取函数
   */
 void EXTI1_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI1_IRQn 0 */
-
+  extern void EXTI1_IRQHandler_Fast(void);
+  EXTI1_IRQHandler_Fast();
+  return; // 直接返回，不再走后面的 HAL
   /* USER CODE END EXTI1_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
   /* USER CODE BEGIN EXTI1_IRQn 1 */

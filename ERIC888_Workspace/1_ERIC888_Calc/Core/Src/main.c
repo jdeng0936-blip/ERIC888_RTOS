@@ -24,7 +24,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "FreeRTOS.h"
+#include "task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -91,37 +92,57 @@ int main(void) {
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_FMC_Init();
+  
+  /*
+   * ✅ [Embedded-Engineer] SDRAM 初始化 + 硬件自检
+   *
+   * ⚠️ 必须在所有使用 SDRAM 的模块 (如 FaultRecorder) 之前调用！
+   * 自检失败时死循环，绝对拦截 RTOS 启动，防止 HardFault。
+   */
+  extern void BSP_SDRAM_Init(void);
+  extern void BSP_SDRAM_Test(void);
+  BSP_SDRAM_Init();
+  BSP_SDRAM_Test();
+  
+  /* ✅ [Embedded-Engineer] 初始化 AD7606 的 TIM3 硬件触发信号 */
+  extern void MX_TIM3_Init_AD7606_Trigger(void);
+  MX_TIM3_Init_AD7606_Trigger();
+  
+  /* ✅ [Embedded-Engineer] 初始化内部 ADC1 + DMA 6路辅助电流采集 */
+  extern void MX_ADC1_Current_Init(void);
+  MX_ADC1_Current_Init();
+  
   /* USER CODE BEGIN 2 */
-  // 可以在这里加一句硬件复位 AD7606 的代码（拉低 PG7
-  // 再拉高），目前我们先直接跑测试
+  // AD7606 硬件复位 (PG7 拉低再拉高)
+  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_7, GPIO_PIN_RESET);
+  for (volatile int i = 0; i < 100; i++);
+  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_7, GPIO_PIN_SET);
+  
+  /* ✅ [Embedded-Engineer] 初始化 DWT 周期计数器 (纳秒级性能测量) */
+  extern void DWT_Init(void);
+  DWT_Init();
+  
+  /* ✅ [Embedded-Engineer] 创建 FTS 保护任务 + K-Switch GPIO 初始化 */
+  extern void FTS_Protect_Init(void);
+  FTS_Protect_Init();
+  
+  /* ✅ [Embedded-Engineer] 初始化 SPI4 Slave (A→B板通信) */
+  extern void SPI4_Slave_Init(void);
+  SPI4_Slave_Init();
+  
+  /* ✅ [Embedded-Engineer] 启动 FreeRTOS 调度器 —— 一旦启动将不会返回 */
+  vTaskStartScheduler();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  /* 如果执行到这里，说明 FreeRTOS 堆不够大，调度器启动失败 */
   while (1) {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-    // 1. 发令枪：拉高 PC6 (CONVST) 启动全通道同步转换
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
-    for (volatile int i = 0; i < 10; i++)
-      ; // 纳秒级极短延时，确保触发脉冲宽度足够
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
-
-    // 2. 状态监测：死等 PB1 (BUSY) 变低，代表 ADC 硬件转换完毕
-    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_SET)
-      ;
-
-    // 3. FMC 极速读取：并行总线发威，瞬间搬移 8 路数据到内存
-    volatile int16_t *ad_ptr = (volatile int16_t *)AD7606_BASE_ADDR;
-    for (int i = 0; i < 8; i++) {
-      ad7606_data[i] = *ad_ptr;
-    }
-
-    // 测试阶段心跳：暂时给个半秒延时防止终端被刷爆，后续我们会把它放进 1ms
-    // 硬件定时器里
-    HAL_Delay(500);
+    HAL_GPIO_TogglePin(GPIOG, GPIO_PIN_7);
+    HAL_Delay(100); /* 快速闪烁 = 错误指示 */
   }
   /* USER CODE END 3 */
 }
@@ -141,15 +162,15 @@ void SystemClock_Config(void) {
 
   /** Initializes the RCC Oscillators according to the specified parameters
    * in the RCC_OscInitTypeDef structure.
+   * ✅ [HSE 8MHz] 极速快切点火：使用外部 8MHz 晶振以保证 1ms 算法的极高时钟精度
    */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 180;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 8;         // 8MHz / 8 = 1MHz
+  RCC_OscInitStruct.PLL.PLLN = 360;       // 1MHz * 360 = 360MHz
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2; // 360MHz / 2 = 180MHz (内核时钟)
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
@@ -208,3 +229,49 @@ void assert_failed(uint8_t *file, uint32_t line) {
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
+/* ═══════════════════ FreeRTOS 必需回调函数 ═══════════════════ */
+
+/*
+ * ✅ [Embedded-Engineer]
+ * configSUPPORT_STATIC_ALLOCATION = 1 时必须提供这两个回调。
+ * FreeRTOS 内核需要它们来获取 Idle 和 Timer 任务的静态内存。
+ */
+
+/* Idle 任务的静态内存 */
+static StaticTask_t xIdleTaskTCBBuffer;
+static StackType_t xIdleStack[configMINIMAL_STACK_SIZE];
+
+void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer,
+                                   StackType_t **ppxIdleTaskStackBuffer,
+                                   uint32_t *pulIdleTaskStackSize)
+{
+    *ppxIdleTaskTCBBuffer   = &xIdleTaskTCBBuffer;
+    *ppxIdleTaskStackBuffer = &xIdleStack[0];
+    *pulIdleTaskStackSize   = configMINIMAL_STACK_SIZE;
+}
+
+/* Timer 任务的静态内存 (如果 configUSE_TIMERS = 1) */
+#if (configUSE_TIMERS == 1)
+static StaticTask_t xTimerTaskTCBBuffer;
+static StackType_t xTimerStack[configTIMER_TASK_STACK_DEPTH];
+
+void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
+                                    StackType_t **ppxTimerTaskStackBuffer,
+                                    uint32_t *pulTimerTaskStackSize)
+{
+    *ppxTimerTaskTCBBuffer   = &xTimerTaskTCBBuffer;
+    *ppxTimerTaskStackBuffer = &xTimerStack[0];
+    *pulTimerTaskStackSize   = configTIMER_TASK_STACK_DEPTH;
+}
+#endif
+
+/* 栈溢出检测钩子 */
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+    (void)xTask;
+    (void)pcTaskName;
+    /* 到这里说明某个任务栈溢出了，死循环便于调试 */
+    __disable_irq();
+    while(1);
+}

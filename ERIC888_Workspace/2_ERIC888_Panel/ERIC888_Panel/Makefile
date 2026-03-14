@@ -91,6 +91,8 @@ Core/Src/bsp_w5500_socket.c \
 Core/Src/bsp_4g.c \
 Core/Src/bsp_gps.c \
 Core/Src/bsp_touch.c \
+Core/Src/ui_fts_status.c \
+Core/Src/modbus_tcp.c \
 Core/Src/dma2d.c \
 Core/Src/fmc.c \
 Core/Src/ltdc.c \

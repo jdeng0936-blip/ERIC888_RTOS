@@ -39,6 +39,20 @@ C_SOURCES =  \
 Core/Src/main.c \
 Core/Src/gpio.c \
 Core/Src/fmc.c \
+Core/Src/tim_ad7606.c \
+Core/Src/exti_ad7606.c \
+Core/Src/adc_current.c \
+Core/Src/fts_protect.c \
+Core/Src/dwt_timing.c \
+Core/Src/spi4_slave.c \
+Core/Src/fault_recorder.c \
+Core/Src/bsp_sdram.c \
+Core/Src/bsp_kswitch_di.c \
+Drivers/CMSIS/DSP/Source/FastMathFunctions/arm_sin_f32.c \
+Drivers/CMSIS/DSP/Source/FastMathFunctions/arm_cos_f32.c \
+Drivers/CMSIS/DSP/Source/ControllerFunctions/arm_pid_init_f32.c \
+Drivers/CMSIS/DSP/Source/ControllerFunctions/arm_pid_reset_f32.c \
+Drivers/CMSIS/DSP/Source/CommonTables/arm_common_tables.c \
 Core/Src/stm32f4xx_it.c \
 Core/Src/stm32f4xx_hal_msp.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_fmc.c \
@@ -60,9 +74,25 @@ Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc_ex.c \
+Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c \
 Core/Src/system_stm32f4xx.c \
 Core/Src/sysmem.c \
-Core/Src/syscalls.c  
+Core/Src/syscalls.c \
+Middlewares/Third_Party/FreeRTOS/Source/croutine.c \
+Middlewares/Third_Party/FreeRTOS/Source/event_groups.c \
+Middlewares/Third_Party/FreeRTOS/Source/list.c \
+Middlewares/Third_Party/FreeRTOS/Source/queue.c \
+Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c \
+Middlewares/Third_Party/FreeRTOS/Source/tasks.c \
+Middlewares/Third_Party/FreeRTOS/Source/timers.c \
+Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS/cmsis_os.c \
+Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c \
+Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F/port.c
+
 
 # ASM sources
 ASM_SOURCES =  \
@@ -115,7 +145,9 @@ AS_DEFS =
 # C defines
 C_DEFS =  \
 -DUSE_HAL_DRIVER \
--DSTM32F429xx
+-DSTM32F429xx \
+-DARM_MATH_CM4 \
+-D__FPU_PRESENT=1
 
 
 # AS includes
@@ -128,7 +160,12 @@ C_INCLUDES =  \
 -IDrivers/STM32F4xx_HAL_Driver/Inc/Legacy \
 -IDrivers/CMSIS/Device/ST/STM32F4xx/Include \
 -IDrivers/CMSIS/Include \
--I../3_Common_Protocol
+-IDrivers/CMSIS/DSP/Include \
+-I../3_Common_Protocol \
+-I../3_Common_Protocol \
+-IMiddlewares/Third_Party/FreeRTOS/Source/include \
+-IMiddlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS \
+-IMiddlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F
 
 
 # compile gcc flags
@@ -165,7 +202,7 @@ all: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET
 #######################################
 # list of objects
 OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
-vpath %.c $(sort $(dir $(C_SOURCES)))
+vpath %.c $(sort $(dir $(C_SOURCES))) Middlewares/FreeRTOS/Source Middlewares/FreeRTOS/Source/CMSIS_RTOS Middlewares/FreeRTOS/Source/portable/MemMang Middlewares/FreeRTOS/Source/portable/GCC/ARM_CM4F
 # list of ASM program objects
 OBJECTS += $(addprefix $(BUILD_DIR)/,$(notdir $(ASM_SOURCES:.s=.o)))
 vpath %.s $(sort $(dir $(ASM_SOURCES)))

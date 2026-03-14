@@ -40,6 +40,8 @@
 #include "lv_port_indev.h"
 #include "ui/ui.h"
 #include "lv_fs_fatfs.h"
+#include "ui_fts_status.h"
+#include "modbus_tcp.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -65,6 +67,18 @@
 static Eric888_ADC_Data s_latest_adc;
 static volatile uint8_t s_adc_fresh;
 
+/* ✅ [Embedded-Engineer] 最新 FTS 保护状态快照 (A 板 → SPI4 → B 板) */
+static FTS_StatusSnapshot_t s_latest_fts;
+static volatile uint8_t s_fts_fresh;
+
+/*
+ * ✅ [Fix #2] 跨任务数据互斥锁
+ * CommTask(写) 和 DisplayTask(读) 共享 s_latest_adc / s_latest_fts。
+ * 结构体 memcpy 非原子操作 → 用 mutex 保护原子性。
+ */
+static SemaphoreHandle_t s_data_mutex;
+static StaticSemaphore_t s_data_mutex_buf;
+
 /* USER CODE END Variables */
 osThreadId displayTaskHandle;
 osThreadId commTaskHandle;
@@ -79,6 +93,7 @@ osThreadId defaultTaskHandle;
 void StartDefaultTask(void const * argument);
 void StartCommTask(void const * argument);
 void StartNetworkTask(void const * argument);
+void StartIdleMaintenanceTask(void const * argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -109,19 +124,17 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
+  /* [Fix #2] 创建数据互斥锁 (静态分配) */
+  s_data_mutex = xSemaphoreCreateMutexStatic(&s_data_mutex_buf);
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -137,8 +150,13 @@ void MX_FREERTOS_Init(void) {
   osThreadDef(networkTask, StartNetworkTask, osPriorityIdle, 0, 1024);
   networkTaskHandle = osThreadCreate(osThread(networkTask), NULL);
 
-  /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityLow, 0, 256);
+  /*
+   * [Fix #1] defaultTask 改绑独立空闲维护函数
+   *
+   * 原 BUG: defaultTask 也绑 StartDefaultTask -> LVGL 双任务并发 -> HardFault
+   * 修复: 改为 StartIdleMaintenanceTask (仅做栈水位监控)
+   */
+  osThreadDef(defaultTask, StartIdleMaintenanceTask, osPriorityLow, 0, 256);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
@@ -174,6 +192,9 @@ void StartDefaultTask(void const * argument)
 
   /* Create the ERIC888 UI (SquareLine Studio) */
   ui_init();
+
+  /* ✅ [Embedded-Engineer] 在 Tab1 中创建 FTS 保护状态面板 */
+  ui_fts_create(ui_Tab1);
 
   /* Load GB2312 fonts from SD card and set as fallback for UI fonts */
   /* Must be after ui_init() so font objects exist, and after lv_fs_fatfs_init() */
@@ -228,77 +249,58 @@ void StartDefaultTask(void const * argument)
     if ((now - ui_update_tick) >= 500) {
       ui_update_tick = now;
 
-      if (s_adc_fresh) {
+      /*
+       * [Fix #2] mutex 保护读取 - 拷贝到本地后解锁，LVGL 更新在锁外
+       */
+      Eric888_ADC_Data local_adc;
+      FTS_StatusSnapshot_t local_fts;
+      uint8_t adc_ok = 0, fts_ok = 0;
+
+      if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        if (s_adc_fresh) { local_adc = s_latest_adc; s_adc_fresh = 0; adc_ok = 1; }
+        if (s_fts_fresh) { local_fts = s_latest_fts; s_fts_fresh = 0; fts_ok = 1; }
+        xSemaphoreGive(s_data_mutex);
+      }
+
+      if (adc_ok) {
         char buf[16];
 
-        /* ---- Tab1: 实时监控 — 电压 (kV) ---- */
-        /* UI 布局：
-         *  "U"    [Ua]    [Ub]    [Uc]    "kv"
-         *  Label79  Label80  Label82  Label83  Label84(单位)
-         */
-        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[0] * 0.01f));
-        lv_label_set_text(ui_Label80, buf);   // ← Ua 电压值
-        // ← ch[0] = AD7606 通道0的原始值
-        // ← × 0.01 = 除以100（A板已经把 ADC 值换算成 0.01kV 单位）
+        /* 电压 (kV) */
+        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[0] * 0.01f));
+        lv_label_set_text(ui_Label80, buf);
+        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[1] * 0.01f));
+        lv_label_set_text(ui_Label82, buf);
+        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[2] * 0.01f));
+        lv_label_set_text(ui_Label83, buf);
 
-        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[1] * 0.01f));
-        lv_label_set_text(ui_Label82, buf);   // ← Ub 电压值
+        /* 电流 (A) */
+        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[3] * 0.001f));
+        lv_label_set_text(ui_Label81, buf);
+        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[4] * 0.001f));
+        lv_label_set_text(ui_Label85, buf);
+        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[5] * 0.001f));
+        lv_label_set_text(ui_Label86, buf);
 
-        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[2] * 0.01f));
-        lv_label_set_text(ui_Label83, buf);   // ← Uc 电压值
+        /* 上触头温度 */
+        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[0] * 0.1f));
+        lv_label_set_text(ui_Label190, buf);
+        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[1] * 0.1f));
+        lv_label_set_text(ui_Label193, buf);
+        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[2] * 0.1f));
+        lv_label_set_text(ui_Label194, buf);
 
-        /* ---- Tab1: 实时监控 — 电流 (A) ---- */
-        /* UI 布局：
-         *  "I"    [Ia]    [Ib]    [Ic]    "A"
-         *  Label192  Label81  Label85  Label86  Label88(单位)
-         */
-        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[3] * 0.001f));
-        lv_label_set_text(ui_Label81, buf);   // ← Ia 电流值
+        /* 下触头温度 */
+        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[3] * 0.1f));
+        lv_label_set_text(ui_Label200, buf);
+        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[4] * 0.1f));
+        lv_label_set_text(ui_Label195, buf);
+        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[5] * 0.1f));
+        lv_label_set_text(ui_Label197, buf);
+      }
 
-        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[4] * 0.001f));
-        lv_label_set_text(ui_Label85, buf);   // ← Ib 电流值
-
-        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[5] * 0.001f));
-        lv_label_set_text(ui_Label86, buf);   // ← Ic 电流值
-
-        /* ---- Tab1: 上触头温度 (℃) ×3 ---- */
-        /* UI 布局：
-         *  "上触头"  [A相℃]     [B相℃]     [C相℃]
-         *  Label196  Label190   Label193   Label194
-         */
-        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[0] * 0.1f));
-        lv_label_set_text(ui_Label190, buf);  // ← 上触头 A相温度
-
-        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[1] * 0.1f));
-        lv_label_set_text(ui_Label193, buf);  // ← 上触头 B相温度
-
-        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[2] * 0.1f));
-        lv_label_set_text(ui_Label194, buf);  // ← 上触头 C相温度
-
-        /* ---- Tab1: 下触头温度 (℃) ×3 ---- */
-        /* UI 布局：
-         *  "下触头"  [A相℃]     [B相℃]     [C相℃]
-         *  Label198  Label200   Label195   Label197
-         */
-        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[3] * 0.1f));
-        lv_label_set_text(ui_Label200, buf);  // ← 下触头 A相温度
-
-        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[4] * 0.1f));
-        lv_label_set_text(ui_Label195, buf);  // ← 下触头 B相温度
-
-        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[5] * 0.1f));
-        lv_label_set_text(ui_Label197, buf);  // ← 下触头 C相温度
-
-        /* ---- Tab1: 电缆头温度 (℃) ×3 ---- */
-        /* 使用无线测温模块数据（暂用 0，后续从无线模块获取） */
-        /* Label204, Label199, Label201 */
-
-        /* ---- Tab1: 温湿度 A/B 路 ---- */
-        /* Label208(-℃) Label205(--RH%)  = A路 */
-        /* Label203(-℃) Label207(--RH%)  = B路 */
-        /* 温湿度传感器数据暂从 A 板预留通道获取 */
-
-        s_adc_fresh = 0;  // ← 标记已消费，等下一包数据
+      /* FTS 保护状态面板 */
+      if (fts_ok) {
+        ui_fts_update(&local_fts);
       }
     }
 
@@ -344,12 +346,40 @@ void StartCommTask(void const * argument)
 
       /* Request latest ADC data from A-board */
       int ret = BSP_SpiMaster_Transfer(CMD_READ_ADC, NULL, 0);
-      if (ret == 0) {
-        /* Parse response payload into latest ADC data */
-        const Eric888_SPI_Frame *rx = BSP_SpiMaster_GetRxFrame();
-        if (rx->cmd == CMD_ACK && rx->len >= sizeof(Eric888_ADC_Data)) {
-          memcpy(&s_latest_adc, rx->payload, sizeof(Eric888_ADC_Data));
-          s_adc_fresh = 1;
+
+      /* 请求 FTS 保护状态快照 (背靠背) */
+      int ret_fts = BSP_SpiMaster_Transfer(CMD_READ_STATUS, NULL, 0);
+
+      /*
+       * [Fix #2] mutex 保护写入 - SPI 传输在锁外完成，仅 memcpy 时持锁
+       */
+      if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (ret == 0) {
+          const Eric888_SPI_Frame *rx = BSP_SpiMaster_GetRxFrame();
+          if (rx->cmd == CMD_ACK && rx->len >= sizeof(Eric888_ADC_Data)) {
+            memcpy(&s_latest_adc, rx->payload, sizeof(Eric888_ADC_Data));
+            s_adc_fresh = 1;
+          }
+        }
+        if (ret_fts == 0) {
+          const Eric888_SPI_Frame *rx_fts = BSP_SpiMaster_GetRxFrame();
+          if (rx_fts->cmd == CMD_ACK && rx_fts->len >= sizeof(FTS_StatusSnapshot_t)) {
+            memcpy(&s_latest_fts, rx_fts->payload, sizeof(FTS_StatusSnapshot_t));
+            s_fts_fresh = 1;
+          }
+        }
+        xSemaphoreGive(s_data_mutex);
+
+        /* 同步数据到 Modbus TCP 寄存器表 (供 SCADA 读取) */
+        if (s_adc_fresh) {
+          ModbusTCP_UpdateADC(s_latest_adc.ch, 6,
+                             s_latest_adc.internal_adc, 6);
+        }
+        if (s_fts_fresh) {
+          ModbusTCP_UpdateFTS(s_latest_fts.fts_state, s_latest_fts.fault_type,
+                             s_latest_fts.topology, s_latest_fts.backup_available,
+                             s_latest_fts.phase_diff_deg10,
+                             s_latest_fts.recorder_frozen);
         }
       }
     }
@@ -437,12 +467,16 @@ void StartNetworkTask(void const * argument)
         /* Check TCP server socket 0 state */
         uint8_t sock_state = W5500_Socket_Status(0);
         if (sock_state == SOCK_ESTABLISHED) {
-          /* Client connected — process Modbus TCP / data exchange */
+          /* Modbus TCP: 接收请求 → 协议解析 → 响应 */
           uint8_t rx_buf[256];
           int rx_len = W5500_Socket_Recv(0, rx_buf, sizeof(rx_buf));
           if (rx_len > 0) {
-            /* TODO: Parse Modbus TCP request and respond */
-            W5500_Socket_Send(0, rx_buf, (uint16_t)rx_len); /* Echo for now */
+            uint8_t tx_buf[260];
+            int tx_len = 0;
+            int ret = ModbusTCP_Process(rx_buf, rx_len, tx_buf, &tx_len);
+            if (ret > 0 && tx_len > 0) {
+              W5500_Socket_Send(0, tx_buf, (uint16_t)tx_len);
+            }
           }
         } else if (sock_state == SOCK_CLOSE_WAIT) {
           W5500_Socket_Close(0);
@@ -499,6 +533,27 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   BSP_SpiMaster_EXTI_Callback(GPIO_Pin);
+}
+
+/**
+ * @brief  [Fix #1] 空闲维护任务
+ *
+ * 原 BUG: defaultTask 绑定 StartDefaultTask → LVGL 双任务并发 → HardFault
+ * 修复: 独立的低优先级维护任务，仅做栈水位监控和空闲计数
+ */
+void StartIdleMaintenanceTask(void const * argument)
+{
+  (void)argument;
+  for(;;)
+  {
+    /* 低频空闲循环 — 可用于栈水位监控或系统诊断 */
+#if (INCLUDE_uxTaskGetStackHighWaterMark == 1)
+    /* 可选：监控各任务栈水位，低于阈值时亮故障灯 */
+    /* UBaseType_t disp_wm = uxTaskGetStackHighWaterMark(displayTaskHandle); */
+    /* UBaseType_t comm_wm = uxTaskGetStackHighWaterMark(commTaskHandle); */
+#endif
+    osDelay(5000);  /* 5 秒一次，几乎不消耗 CPU */
+  }
 }
 
 /* USER CODE END Application */

@@ -53,11 +53,83 @@ typedef enum {
   CMD_READ_BATCH    = 0x03,  /**< Read batch (512 samples from SDRAM) */
   CMD_READ_STATUS   = 0x02,
   CMD_CTRL_RELAY    = 0x10,
+  CMD_RESET_LOCKOUT = 0x11,  /**< B板→A板: 人工复位闭锁状态 */
   CMD_HEARTBEAT     = 0xAA,
   CMD_ACK           = 0xF0,
   CMD_NACK          = 0xF1,
   CMD_BATCH_READY   = 0xB0,  /**< A-board notifies: batch buffer ready */
 } Eric888_SPI_Cmd;
+
+/* ========================= 保护状态共享定义 ========================= */
+
+/**
+ * ✅ [共享定义] A/B 板必须引用同一份枚举，禁止各自私有定义！
+ *
+ * 以下枚举和结构体由 A 板 fts_protect.c 写入，
+ * 经 SPI4 快照传送到 B 板解析显示。
+ */
+
+/* ──── FTS 保护状态机 ──── */
+typedef enum {
+    FTS_STATE_INIT = 0,       /* 上电自检 (500ms 拓扑推断) */
+    FTS_STATE_NORMAL,         /* 稳态监视 */
+    FTS_STATE_VOLTAGE_DIP,    /* 电压骤降确认 */
+    FTS_STATE_TRIPPED,        /* 已成功快切 (500ms 暂态等待) */
+    FTS_STATE_SYNC_WAIT,      /* 同期捕捉等待 */
+    FTS_STATE_LOCKOUT         /* 绝对闭锁 */
+} FtsState_t;
+
+/* ──── 故障方向 ──── */
+typedef enum {
+    FAULT_NONE = 0,
+    FAULT_FEEDER1,            /* 进线1 方向故障 */
+    FAULT_FEEDER2,            /* 进线2 方向故障 */
+    FAULT_BUS,                /* 母线故障 → 全闭锁 */
+    FAULT_PT_BROKEN           /* PT 断线 → 闭锁报警 */
+} FaultType_t;
+
+/* ──── 运行拓扑 ──── */
+typedef enum {
+    TOPO_UNKNOWN = 0,
+    TOPO_SPLIT_SRC1,          /* 分段-电源1带全所: K1合 K2合 K3分 K4合 */
+    TOPO_SPLIT_SRC2,          /* 分段-电源2带全所: K1分 K2合 K3合 K4合 */
+    TOPO_PARALLEL,            /* 并列运行:         K1合 K2分 K3合 K4分 */
+    TOPO_MAINTENANCE,         /* 全分 = 检修停电 */
+    TOPO_ERROR                /* DI/PT 矛盾 */
+} Topology_t;
+
+/* ──── K-Switch 动作 ──── */
+typedef enum {
+    ACT_NONE = 0,
+    ACT_TRIP_K1,              /* 跳 K1 (进线1) */
+    ACT_TRIP_K2,              /* 跳 K2+K4 (母联联动) */
+    ACT_TRIP_K3,              /* 跳 K3 (进线2) */
+    ACT_LOCKOUT_ALL,          /* K1+K2+K3+K4 全跳 */
+    ACT_CLOSE_K1,             /* 合 K1 */
+    ACT_CLOSE_K2,             /* 合 K2+K4 (母联联动) */
+    ACT_CLOSE_K3              /* 合 K3 */
+} SwitchAction_t;
+
+/* ──── A→B 保护状态快照 (填入 SPI frame payload) ──── */
+typedef struct __attribute__((packed)) {
+    uint8_t  fts_state;          /* FtsState_t */
+    uint8_t  fault_type;         /* FaultType_t */
+    uint8_t  topology;           /* Topology_t */
+    uint8_t  backup_available;   /* 1=备用电源可用, 0=不可用 */
+    int16_t  phase_diff_deg10;   /* 主备相角差 (×10, 单位 0.1°, 范围 ±1800) */
+    uint8_t  recorder_frozen;    /* 1=录波已冻结(故障帧已锁定), 0=正常 */
+    uint8_t  _reserved;          /* 对齐填充 */
+    uint16_t algo_max_us;        /* 保护算法最坏执行时间 (×10, 单位 0.1μs) */
+    uint16_t algo_last_us;       /* 最近一次执行时间 */
+    uint32_t algo_count;         /* 累计执行次数 */
+    uint16_t feeder1_ia;         /* 进线柜1 A相电流 (ADC原始值) */
+    uint16_t feeder1_ib;
+    uint16_t feeder1_ic;
+    uint16_t feeder2_ia;         /* 进线柜2 A相电流 */
+    uint16_t feeder2_ib;
+    uint16_t feeder2_ic;
+    uint32_t uptime_ms;          /* 系统运行时间 */
+} FTS_StatusSnapshot_t;  /* = 32 bytes, 4字节对齐 ✅ */
 
 /* ========================= Frame v3 (8-bit safe) ========================= */
 /**
