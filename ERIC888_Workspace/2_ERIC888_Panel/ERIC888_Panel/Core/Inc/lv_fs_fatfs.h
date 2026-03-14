@@ -19,4 +19,18 @@ int lv_fs_fatfs_init(void);
  */
 uint8_t lv_fs_fatfs_is_mounted(void);
 
+/**
+ * Load GB2312 font files from SD card and set as fallback
+ * for UI fonts (pfht16/pfht18).
+ * Call AFTER lv_fs_fatfs_init() and ui_init().
+ * @return number of fonts loaded (0/1/2)
+ */
+int lv_fs_load_sd_fonts(void);
+
+/**
+ * Unload SD card fonts and clear fallback pointers.
+ * Only needed for dynamic reload scenarios.
+ */
+void lv_fs_unload_sd_fonts(void);
+
 #endif /* LV_FS_FATFS_H */

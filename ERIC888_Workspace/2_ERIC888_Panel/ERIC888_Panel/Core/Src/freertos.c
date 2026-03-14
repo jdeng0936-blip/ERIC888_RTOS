@@ -175,6 +175,11 @@ void StartDefaultTask(void const * argument)
   /* Create the ERIC888 UI (SquareLine Studio) */
   ui_init();
 
+  /* Load GB2312 fonts from SD card and set as fallback for UI fonts */
+  /* Must be after ui_init() so font objects exist, and after lv_fs_fatfs_init() */
+  /* so the 'S:' drive is available for reading font files */
+  lv_fs_load_sd_fonts();  /* Returns 0~2 = number of fonts loaded */
+
   uint32_t ui_update_tick = 0;
 
   for(;;)
@@ -191,27 +196,109 @@ void StartDefaultTask(void const * argument)
     /* LVGL timer handler — drives rendering + input */
     lv_timer_handler();
 
-    /* Update UI values from A-board data every 500ms */
+    /* ================================================================
+     * UI 数据绑定 — 每 500ms 刷新一次
+     *
+     * 数据来源：s_latest_adc（A 板通过 SPI 发来的 ADC 数据）
+     *
+     * ADC 通道映射（AD7606 8 通道）：
+     *   ch[0] = Ua 电压（A相）  ← PT 变比后的模拟信号
+     *   ch[1] = Ub 电压（B相）
+     *   ch[2] = Uc 电压（C相）
+     *   ch[3] = Ia 电流（A相）  ← CT 变比后的模拟信号
+     *   ch[4] = Ib 电流（B相）
+     *   ch[5] = Ic 电流（C相）
+     *   ch[6] = I0 零序电流     ← 三相不平衡电流
+     *   ch[7] = 备用
+     *
+     * STM32 内部 ADC 通道映射（6 通道）：
+     *   internal_adc[0] = 温度传感器 1（上触头 A相）
+     *   internal_adc[1] = 温度传感器 2（上触头 B相）
+     *   internal_adc[2] = 温度传感器 3（上触头 C相）
+     *   internal_adc[3] = 温度传感器 4（下触头 A相）
+     *   internal_adc[4] = 温度传感器 5（下触头 B相）
+     *   internal_adc[5] = 温度传感器 6（下触头 C相）
+     *
+     * 缩放系数（原始值 → 工程值）：
+     *   电压：ch[n] × 0.01 = kV（PT变比已在A板计算）
+     *   电流：ch[n] × 0.001 = A（CT变比已在A板计算）
+     *   温度：internal_adc[n] × 0.1 = ℃
+     * ================================================================ */
     uint32_t now = HAL_GetTick();
     if ((now - ui_update_tick) >= 500) {
       ui_update_tick = now;
+
       if (s_adc_fresh) {
         char buf[16];
-        /* Update SquareLine label widgets with real data */
-        /* Voltage labels: ui_Label79(Ua), ui_Label80(Ub), ui_Label82(Uc) */
-        snprintf(buf, sizeof(buf), "%.1f", (double)(s_latest_adc.ch[0] * 0.01f));
-        lv_label_set_text(ui_Label79, buf);
-        snprintf(buf, sizeof(buf), "%.1f", (double)(s_latest_adc.ch[1] * 0.01f));
-        lv_label_set_text(ui_Label80, buf);
-        snprintf(buf, sizeof(buf), "%.1f", (double)(s_latest_adc.ch[2] * 0.01f));
-        lv_label_set_text(ui_Label82, buf);
-        /* Current labels: ui_Label83(Ia), ui_Label84(Ib), ui_Label88(Ic) */
+
+        /* ---- Tab1: 实时监控 — 电压 (kV) ---- */
+        /* UI 布局：
+         *  "U"    [Ua]    [Ub]    [Uc]    "kv"
+         *  Label79  Label80  Label82  Label83  Label84(单位)
+         */
+        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[0] * 0.01f));
+        lv_label_set_text(ui_Label80, buf);   // ← Ua 电压值
+        // ← ch[0] = AD7606 通道0的原始值
+        // ← × 0.01 = 除以100（A板已经把 ADC 值换算成 0.01kV 单位）
+
+        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[1] * 0.01f));
+        lv_label_set_text(ui_Label82, buf);   // ← Ub 电压值
+
+        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[2] * 0.01f));
+        lv_label_set_text(ui_Label83, buf);   // ← Uc 电压值
+
+        /* ---- Tab1: 实时监控 — 电流 (A) ---- */
+        /* UI 布局：
+         *  "I"    [Ia]    [Ib]    [Ic]    "A"
+         *  Label192  Label81  Label85  Label86  Label88(单位)
+         */
         snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[3] * 0.001f));
-        lv_label_set_text(ui_Label83, buf);
+        lv_label_set_text(ui_Label81, buf);   // ← Ia 电流值
+
         snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[4] * 0.001f));
-        lv_label_set_text(ui_Label84, buf);
+        lv_label_set_text(ui_Label85, buf);   // ← Ib 电流值
+
         snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[5] * 0.001f));
-        lv_label_set_text(ui_Label88, buf);
+        lv_label_set_text(ui_Label86, buf);   // ← Ic 电流值
+
+        /* ---- Tab1: 上触头温度 (℃) ×3 ---- */
+        /* UI 布局：
+         *  "上触头"  [A相℃]     [B相℃]     [C相℃]
+         *  Label196  Label190   Label193   Label194
+         */
+        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[0] * 0.1f));
+        lv_label_set_text(ui_Label190, buf);  // ← 上触头 A相温度
+
+        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[1] * 0.1f));
+        lv_label_set_text(ui_Label193, buf);  // ← 上触头 B相温度
+
+        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[2] * 0.1f));
+        lv_label_set_text(ui_Label194, buf);  // ← 上触头 C相温度
+
+        /* ---- Tab1: 下触头温度 (℃) ×3 ---- */
+        /* UI 布局：
+         *  "下触头"  [A相℃]     [B相℃]     [C相℃]
+         *  Label198  Label200   Label195   Label197
+         */
+        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[3] * 0.1f));
+        lv_label_set_text(ui_Label200, buf);  // ← 下触头 A相温度
+
+        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[4] * 0.1f));
+        lv_label_set_text(ui_Label195, buf);  // ← 下触头 B相温度
+
+        snprintf(buf, sizeof(buf), "%.1f℃", (double)(s_latest_adc.internal_adc[5] * 0.1f));
+        lv_label_set_text(ui_Label197, buf);  // ← 下触头 C相温度
+
+        /* ---- Tab1: 电缆头温度 (℃) ×3 ---- */
+        /* 使用无线测温模块数据（暂用 0，后续从无线模块获取） */
+        /* Label204, Label199, Label201 */
+
+        /* ---- Tab1: 温湿度 A/B 路 ---- */
+        /* Label208(-℃) Label205(--RH%)  = A路 */
+        /* Label203(-℃) Label207(--RH%)  = B路 */
+        /* 温湿度传感器数据暂从 A 板预留通道获取 */
+
+        s_adc_fresh = 0;  // ← 标记已消费，等下一包数据
       }
     }
 
