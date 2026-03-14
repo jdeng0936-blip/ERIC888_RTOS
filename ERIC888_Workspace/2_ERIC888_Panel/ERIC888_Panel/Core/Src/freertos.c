@@ -38,7 +38,8 @@
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
-#include "ui_main.h"
+#include "ui/ui.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -167,8 +168,8 @@ void StartDefaultTask(void const * argument)
   lv_port_disp_init();
   lv_port_indev_init();
 
-  /* Create the ERIC888 main UI */
-  ui_main_create();
+  /* Create the ERIC888 UI (SquareLine Studio) */
+  ui_init();
 
   uint32_t ui_update_tick = 0;
 
@@ -177,7 +178,7 @@ void StartDefaultTask(void const * argument)
     /* Feed watchdog */
     HAL_IWDG_Refresh(&hiwdg);
 
-    /* Status LED heartbeat (toggle every 500ms ≈ 32 x 16ms) */
+    /* Status LED heartbeat (toggle every 500ms ~ 32 x 16ms) */
     if (++led_cnt >= 32) {
       led_cnt = 0;
       HAL_GPIO_TogglePin(GPIOH, GPIO_PIN_10); /* LED1 Run */
@@ -191,16 +192,22 @@ void StartDefaultTask(void const * argument)
     if ((now - ui_update_tick) >= 500) {
       ui_update_tick = now;
       if (s_adc_fresh) {
-        /* Map ADC channels to voltage/current (placeholder scaling) */
-        float ua = (float)s_latest_adc.ch[0] * 0.01f;
-        float ub = (float)s_latest_adc.ch[1] * 0.01f;
-        float uc = (float)s_latest_adc.ch[2] * 0.01f;
-        float ia = (float)s_latest_adc.ch[3] * 0.001f;
-        float ib = (float)s_latest_adc.ch[4] * 0.001f;
-        float ic = (float)s_latest_adc.ch[5] * 0.001f;
-        ui_main_update_voltage(ua, ub, uc);
-        ui_main_update_current(ia, ib, ic);
-        ui_main_update_frequency(50.0f); /* TODO: real freq from DSP */
+        char buf[16];
+        /* Update SquareLine label widgets with real data */
+        /* Voltage labels: ui_Label79(Ua), ui_Label80(Ub), ui_Label82(Uc) */
+        snprintf(buf, sizeof(buf), "%.1f", (double)(s_latest_adc.ch[0] * 0.01f));
+        lv_label_set_text(ui_Label79, buf);
+        snprintf(buf, sizeof(buf), "%.1f", (double)(s_latest_adc.ch[1] * 0.01f));
+        lv_label_set_text(ui_Label80, buf);
+        snprintf(buf, sizeof(buf), "%.1f", (double)(s_latest_adc.ch[2] * 0.01f));
+        lv_label_set_text(ui_Label82, buf);
+        /* Current labels: ui_Label83(Ia), ui_Label84(Ib), ui_Label88(Ic) */
+        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[3] * 0.001f));
+        lv_label_set_text(ui_Label83, buf);
+        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[4] * 0.001f));
+        lv_label_set_text(ui_Label84, buf);
+        snprintf(buf, sizeof(buf), "%.2f", (double)(s_latest_adc.ch[5] * 0.001f));
+        lv_label_set_text(ui_Label88, buf);
       }
     }
 

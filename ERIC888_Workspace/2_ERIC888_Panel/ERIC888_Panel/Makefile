@@ -106,7 +106,17 @@ Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_ltdc_ex.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dsi.c \
 Core/Src/lv_port_disp.c \
 Core/Src/lv_port_indev.c \
-Core/Src/ui_main.c \
+Core/Src/ui/ui.c \
+Core/Src/ui/ui_events.c \
+Core/Src/ui/ui_helpers.c \
+Core/Src/ui/ui_theme_manager.c \
+Core/Src/ui/ui_themes.c \
+Core/Src/ui/ui_img_manager.c \
+Core/Src/ui/fastlz.c \
+Core/Src/ui/components/ui_comp_hook.c \
+$(wildcard Core/Src/ui/screens/*.c) \
+$(wildcard Core/Src/ui/fonts/*.c) \
+$(wildcard Core/Src/ui/images/*.c) \
 $(wildcard Middlewares/lvgl/src/*.c) \
 $(wildcard Middlewares/lvgl/src/core/*.c) \
 $(wildcard Middlewares/lvgl/src/draw/*.c) \
@@ -208,7 +218,8 @@ C_INCLUDES =  \
 -IDrivers/CMSIS/Include \
 -I../../../ERIC888_Workspace/3_Common_Protocol \
 -IMiddlewares/lvgl \
--IMiddlewares/lvgl/src
+-IMiddlewares/lvgl/src \
+-ICore/Src/ui
 
 
 # compile gcc flags

@@ -13,8 +13,10 @@
 #define FB_ADDR_0  ((uint32_t)0xD0000000)
 #define FB_ADDR_1  ((uint32_t)0xD0000000 + 800 * 480 * 2)
 
-/* LVGL draw buffer in SDRAM (after framebuffer area) */
-#define LV_BUF_ADDR ((uint32_t)0xD0000000 + 800 * 480 * 2 * 2)
+/* LVGL draw buffer in SDRAM (after framebuffers + LVGL heap) */
+/* FB0: 0xD0000000 (768KB), FB1: skip, LVGL heap: 0xD0200000 (128KB) */
+/* Draw buffer start: 0xD0220000 */
+#define LV_BUF_ADDR ((uint32_t)0xD0220000)
 static lv_disp_draw_buf_t draw_buf;
 /* Use SDRAM for draw buffer — 800 x 10 lines = 16,000 bytes */
 
