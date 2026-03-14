@@ -106,6 +106,10 @@ Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_ltdc_ex.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dsi.c \
 Core/Src/lv_port_disp.c \
 Core/Src/lv_port_indev.c \
+Core/Src/bsp_sdcard.c \
+Core/Src/bsp_lv_fs.c \
+Middlewares/Third_Party/stm32-mw-fatfs-master/source/ff.c \
+Middlewares/Third_Party/stm32-mw-fatfs-master/source/ffunicode.c \
 Core/Src/ui/ui.c \
 Core/Src/ui/ui_events.c \
 Core/Src/ui/ui_helpers.c \
@@ -219,7 +223,8 @@ C_INCLUDES =  \
 -I../../../ERIC888_Workspace/3_Common_Protocol \
 -IMiddlewares/lvgl \
 -IMiddlewares/lvgl/src \
--ICore/Src/ui
+-ICore/Src/ui \
+-IMiddlewares/Third_Party/stm32-mw-fatfs-master/source
 
 
 # compile gcc flags

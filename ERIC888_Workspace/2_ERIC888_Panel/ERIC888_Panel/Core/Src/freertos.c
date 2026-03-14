@@ -39,6 +39,7 @@
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 #include "ui/ui.h"
+#include "lv_fs_fatfs.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -167,6 +168,9 @@ void StartDefaultTask(void const * argument)
   lv_init();
   lv_port_disp_init();
   lv_port_indev_init();
+
+  /* Mount SD card and register 'S:' LVGL filesystem for SquareLine images */
+  lv_fs_fatfs_init();  /* Returns -1 if no SD card — UI still works, just no images */
 
   /* Create the ERIC888 UI (SquareLine Studio) */
   ui_init();
