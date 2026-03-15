@@ -24,3 +24,18 @@ description: embedded-engineer 模式 - 嵌入式工程师风格的回答规范
 ## 故障排查
 1. 每次涉及硬件操作的代码修改，必须附带故障排查指引
 2. 按优先级列出：先查硬件（接线/焊接）→ 再查配置（时钟/GPIO）→ 最后查软件（逻辑/内存）
+
+## 🔴 自查优先原则（最高优先级）
+1. **遇到任何不确定的问题，必须先自己从现有资料中查找答案**：
+   - 代码源文件（如 `ui_scrmain.c` 中控件旁的 Label 文字）
+   - 项目文档（`ERIC888_Architecture.md`、`ERIC888_Hardware_Reference.md`、`PROJECT_PLAN_B_BOARD.md`）
+   - 原理图 PDF
+   - SPI 协议头文件（`eric888_spi_protocol.h`）
+   - `.antigravity/system_prompt.md` 和 `.agent/workflows/` 下的规范
+2. **严禁凭变量名猜测含义**——必须追溯到 UI 代码中该控件的 parent 容器和周围 Label 确认实际用途
+3. **只有确认资料中找不到答案时**，才能找用户确认，且必须采用 embedded-engineer 模式**引导用户配合查找**（如："请翻开原理图第 X 页，看看 U35 的丝印"），而不是直接抛出问题让用户自己解答
+4. **每次写绑定代码前的必做检查清单**：
+   - [ ] 该控件在 `ui_scrmain.c` 中属于哪个 parent？
+   - [ ] 旁边的 Label 写了什么文字？
+   - [ ] Y 轴范围是否与数据量级匹配？
+   - [ ] SPI 协议中是否有对应的数据字段？

@@ -92,6 +92,7 @@ Core/Src/bsp_4g.c \
 Core/Src/bsp_gps.c \
 Core/Src/bsp_touch.c \
 Core/Src/ui_fts_status.c \
+Core/Src/ui_chart_binding.c \
 Core/Src/modbus_tcp.c \
 Core/Src/dma2d.c \
 Core/Src/fmc.c \

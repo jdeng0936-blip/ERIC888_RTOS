@@ -41,6 +41,7 @@
 #include "ui/ui.h"
 #include "lv_fs_fatfs.h"
 #include "ui_fts_status.h"
+#include "ui_chart_binding.h"
 #include "modbus_tcp.h"
 #include <stdio.h>
 /* USER CODE END Includes */
@@ -196,12 +197,16 @@ void StartDefaultTask(void const * argument)
   /* ✅ [Embedded-Engineer] 在 Tab1 中创建 FTS 保护状态面板 */
   ui_fts_create(ui_Tab1);
 
+  /* 初始化 Tab2 历史曲线的 5 个 chart 数据绑定 + Dropdown2 事件 */
+  ui_chart_binding_init();
+
   /* Load GB2312 fonts from SD card and set as fallback for UI fonts */
   /* Must be after ui_init() so font objects exist, and after lv_fs_fatfs_init() */
   /* so the 'S:' drive is available for reading font files */
   lv_fs_load_sd_fonts();  /* Returns 0~2 = number of fonts loaded */
 
   uint32_t ui_update_tick = 0;
+  uint32_t chart_update_tick = 0;  /* ← chart 100ms 更新计时器 */
 
   for(;;)
   {
@@ -246,67 +251,74 @@ void StartDefaultTask(void const * argument)
      *   温度：internal_adc[n] × 0.1 = ℃
      * ================================================================ */
     uint32_t now = HAL_GetTick();
-    if ((now - ui_update_tick) >= 500) {
+
+    /*
+     * 每帧都尝试从 CommTask 取最新数据 (mutex 保护)
+     * local_adc/local_fts 在循环级别，供 Label(500ms) 和 chart(100ms) 共用
+     */
+    Eric888_ADC_Data local_adc;
+    FTS_StatusSnapshot_t local_fts;
+    uint8_t adc_ok = 0, fts_ok = 0;
+
+    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+      if (s_adc_fresh) { local_adc = s_latest_adc; s_adc_fresh = 0; adc_ok = 1; }
+      if (s_fts_fresh) { local_fts = s_latest_fts; s_fts_fresh = 0; fts_ok = 1; }
+      xSemaphoreGive(s_data_mutex);
+    }
+
+    /* ── Tab1 Label 数字刷新 (500ms) ── */
+    if (adc_ok && (now - ui_update_tick) >= 500) {
       ui_update_tick = now;
 
-      /*
-       * [Fix #2] mutex 保护读取 - 拷贝到本地后解锁，LVGL 更新在锁外
-       */
-      Eric888_ADC_Data local_adc;
-      FTS_StatusSnapshot_t local_fts;
-      uint8_t adc_ok = 0, fts_ok = 0;
+      char buf[16];
 
-      if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-        if (s_adc_fresh) { local_adc = s_latest_adc; s_adc_fresh = 0; adc_ok = 1; }
-        if (s_fts_fresh) { local_fts = s_latest_fts; s_fts_fresh = 0; fts_ok = 1; }
-        xSemaphoreGive(s_data_mutex);
-      }
+      /* 电压 (kV) */
+      snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[0] * 0.01f));
+      lv_label_set_text(ui_Label80, buf);
+      snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[1] * 0.01f));
+      lv_label_set_text(ui_Label82, buf);
+      snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[2] * 0.01f));
+      lv_label_set_text(ui_Label83, buf);
 
-      if (adc_ok) {
-        char buf[16];
+      /* 电流 (A) */
+      snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[3] * 0.001f));
+      lv_label_set_text(ui_Label81, buf);
+      snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[4] * 0.001f));
+      lv_label_set_text(ui_Label85, buf);
+      snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[5] * 0.001f));
+      lv_label_set_text(ui_Label86, buf);
 
-        /* 电压 (kV) */
-        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[0] * 0.01f));
-        lv_label_set_text(ui_Label80, buf);
-        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[1] * 0.01f));
-        lv_label_set_text(ui_Label82, buf);
-        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[2] * 0.01f));
-        lv_label_set_text(ui_Label83, buf);
+      /* 上触头温度 */
+      snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[0] * 0.1f));
+      lv_label_set_text(ui_Label190, buf);
+      snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[1] * 0.1f));
+      lv_label_set_text(ui_Label193, buf);
+      snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[2] * 0.1f));
+      lv_label_set_text(ui_Label194, buf);
 
-        /* 电流 (A) */
-        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[3] * 0.001f));
-        lv_label_set_text(ui_Label81, buf);
-        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[4] * 0.001f));
-        lv_label_set_text(ui_Label85, buf);
-        snprintf(buf, sizeof(buf), "%.2f", (double)(local_adc.ch[5] * 0.001f));
-        lv_label_set_text(ui_Label86, buf);
+      /* 下触头温度 */
+      snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[3] * 0.1f));
+      lv_label_set_text(ui_Label200, buf);
+      snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[4] * 0.1f));
+      lv_label_set_text(ui_Label195, buf);
+      snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[5] * 0.1f));
+      lv_label_set_text(ui_Label197, buf);
+    }
 
-        /* 上触头温度 */
-        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[0] * 0.1f));
-        lv_label_set_text(ui_Label190, buf);
-        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[1] * 0.1f));
-        lv_label_set_text(ui_Label193, buf);
-        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[2] * 0.1f));
-        lv_label_set_text(ui_Label194, buf);
-
-        /* 下触头温度 */
-        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[3] * 0.1f));
-        lv_label_set_text(ui_Label200, buf);
-        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[4] * 0.1f));
-        lv_label_set_text(ui_Label195, buf);
-        snprintf(buf, sizeof(buf), "%.1f\xc2\xb0""C", (double)(local_adc.internal_adc[5] * 0.1f));
-        lv_label_set_text(ui_Label197, buf);
-      }
-
-      /* FTS 保护状态面板 */
-      if (fts_ok) {
-        ui_fts_update(&local_fts);
-      }
+    /* FTS 保护状态面板 (有新数据就更新) */
+    if (fts_ok) {
+      ui_fts_update(&local_fts);
     }
 
     /* LED2 = PH11 (Fault) */
     if (s_adc_fresh && s_latest_adc.ch[0] == 0) {
       /* Placeholder: set fault LED based on actual fault flags */
+    }
+
+    /* ── Tab2 chart 数据推送 (100ms / 10Hz) ── */
+    if (adc_ok && (now - chart_update_tick) >= 100) {
+      chart_update_tick = now;
+      ui_chart_binding_update(&local_adc);
     }
 
     osDelay(16); /* ~60 FPS LVGL refresh rate */
